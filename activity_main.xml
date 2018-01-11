@@ -1,0 +1,27 @@
+
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    tools:context="com.example.blake.uberapp.MainActivity"
+    android:orientation="vertical">
+
+    <Button
+        android:id="@+id/driver"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="I'm A Driver"
+        tools:layout_editor_absoluteX="39dp"
+        tools:layout_editor_absoluteY="316dp" />
+
+    <Button
+        android:id="@+id/customer"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="I'm A Customer"
+        tools:layout_editor_absoluteX="230dp"
+        tools:layout_editor_absoluteY="316dp" />
+
+</LinearLayout>
