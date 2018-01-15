@@ -47,8 +47,19 @@ public class CustomerMapActivity extends FragmentActivity implements OnMapReadyC
     LocationRequest mLocationRequest;
     SupportMapFragment mapFragment;
 
-    private Button mLogout, mRequest;
+    private Button mLogout, mRequest, mSettings, mHistory;
     private LatLng pickupLocation;
+     private Boolean requestBol = false;
+    private Marker pickupMarker;
+    private SupportMapFragment mapFragment;
+    private String destination, requestService;
+    private LatLng destinationLatLng;
+    private LinearLayout mDriverInfo;
+    private ImageView mDriverProfileImage;
+    private TextView mDriverName, mDriverPhone, mDriverCar;
+    private RadioGroup mRadioGroup;
+    private RatingBar mRatingBar;
+
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -66,7 +77,22 @@ public class CustomerMapActivity extends FragmentActivity implements OnMapReadyC
         else{
             mapFragment.getMapAsync(this);
         }
+        
+        destinationLatLng = new LatLng(0.0,0.0);
 
+        mDriverInfo = (LinearLayout) findViewById(R.id.driverInfo);
+        mDriverProfileImage = (ImageView) findViewById(R.id.driverProfileImage);
+        mDriverName = (TextView) findViewById(R.id.driverName);
+        mDriverPhone = (TextView) findViewById(R.id.driverPhone);
+        mDriverCar = (TextView) findViewById(R.id.driverCar);
+
+        mRatingBar = (RatingBar) findViewById(R.id.ratingBar);
+
+        mRadioGroup = (RadioGroup) findViewById(R.id.radioGroup);
+        mRadioGroup.check(R.id.UberX);
+        
+        mSettings = (Button) findViewById(R.id.settings);
+        mHistory = (Button) findViewById(R.id.history);
         mLogout = (Button) findViewById(R.id.logout);
         mRequest = (Button) findViewById(R.id.request);
         mLogout.setOnClickListener(new View.OnClickListener() {
@@ -83,18 +109,70 @@ public class CustomerMapActivity extends FragmentActivity implements OnMapReadyC
         mRequest.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                String userId = FirebaseAuth.getInstance().getCurrentUser().getUid();
+                if (requestBol){
+                   endRide();
 
-                DatabaseReference ref = FirebaseDatabase.getInstance().getReference("customerRequest");
-                GeoFire geoFire = new GeoFire(ref);
-                geoFire.setLocation(userId, new GeoLocation(mLastLocation.getLatitude(), mLastLocation.getLongitude()));
 
-                pickupLocation = new LatLng(mLastLocation.getLatitude(), mLastLocation.getLongitude());
-                mMap.addMarker(new MarkerOptions().position(pickupLocation).title("Pickup Here"));
+                }else{
+                    int selectId = mRadioGroup.getCheckedRadioButtonId();
 
-                mRequest.setText("Getting your Driver....");
+                    final RadioButton radioButton = (RadioButton) findViewById(selectId);
 
-                getClosestDriver();
+                    if (radioButton.getText() == null){
+                        return;
+                    }
+
+                    requestService = radioButton.getText().toString();
+
+                    requestBol = true;
+
+                    String userId = FirebaseAuth.getInstance().getCurrentUser().getUid();
+
+                    DatabaseReference ref = FirebaseDatabase.getInstance().getReference("customerRequest");
+                    GeoFire geoFire = new GeoFire(ref);
+                    geoFire.setLocation(userId, new GeoLocation(mLastLocation.getLatitude(), mLastLocation.getLongitude()));
+
+                    pickupLocation = new LatLng(mLastLocation.getLatitude(), mLastLocation.getLongitude());
+                    pickupMarker = mMap.addMarker(new MarkerOptions().position(pickupLocation).title("Pickup Here").icon(BitmapDescriptorFactory.fromResource(R.mipmap.ic_pickup)));
+
+                    mRequest.setText("Getting your Driver....");
+
+                    getClosestDriver();
+                }
+            }
+        });
+        mSettings.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+               Intent intent = new Intent(CustomerMapActivity.this, CustomerSettingsActivity.class);
+                startActivity(intent);
+                return;
+            }
+        });
+
+        mHistory.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                Intent intent = new Intent(CustomerMapActivity.this, HistoryActivity.class);
+                intent.putExtra("customerOrDriver", "Customers");
+                startActivity(intent);
+                return;
+            }
+        });
+
+        PlaceAutocompleteFragment autocompleteFragment = (PlaceAutocompleteFragment)
+                getFragmentManager().findFragmentById(R.id.place_autocomplete_fragment);
+
+        autocompleteFragment.setOnPlaceSelectedListener(new PlaceSelectionListener() {
+            @Override
+            public void onPlaceSelected(Place place) {
+                // Get info about the selected place.
+                destination = place.getName().toString();
+                destinationLatLng = place.getLatLng();
+            }
+            @Override
+            public void onError(Status status) {
+                // Handle the error.
             }
         });
 
@@ -111,21 +189,43 @@ public class CustomerMapActivity extends FragmentActivity implements OnMapReadyC
         geoQuery.addGeoQueryEventListener(new GeoQueryEventListener() {
             @Override
             public void onKeyEntered(String key, GeoLocation location) {
-                if(!driverFound){
-                    driverFound = true;
-                    driverFoundID = key;
+                 if (!driverFound && requestBol){
+                    DatabaseReference mCustomerDatabase = FirebaseDatabase.getInstance().getReference().child("Users").child("Drivers").child(key);
+                    mCustomerDatabase.addListenerForSingleValueEvent(new ValueEventListener() {
+                        @Override
+                        public void onDataChange(DataSnapshot dataSnapshot) {
+                            if (dataSnapshot.exists() && dataSnapshot.getChildrenCount()>0){
+                                Map<String, Object> driverMap = (Map<String, Object>) dataSnapshot.getValue();
+                                if (driverFound){
+                                    return;
+                                }
 
-                    DatabaseReference driverRef = FirebaseDatabase.getInstance().getReference().child("Users").child("Drivers").child(driverFoundID);
-                    String customerId = FirebaseAuth.getInstance().getCurrentUser().getUid();
-                    HashMap map = new HashMap();
-                    map.put("customerRideId", customerId);
-                    driverRef.updateChildren(map);
+                                if(driverMap.get("service").equals(requestService)){
+                                    driverFound = true;
+                                    driverFoundID = dataSnapshot.getKey();
 
-                    getDriverLocation();
-                    mRequest.setText("Looking for Driver Location....");
+                                    DatabaseReference driverRef = FirebaseDatabase.getInstance().getReference().child("Users").child("Drivers").child(driverFoundID).child("customerRequest");
+                                    String customerId = FirebaseAuth.getInstance().getCurrentUser().getUid();
+                                    HashMap map = new HashMap();
+                                    map.put("customerRideId", customerId);
+                                    map.put("destination", destination);
+                                    map.put("destinationLat", destinationLatLng.latitude);
+                                    map.put("destinationLng", destinationLatLng.longitude);
+                                    driverRef.updateChildren(map);
+
+                                    getDriverLocation();
+                                    getDriverInfo();
+                                    getHasRideEnded();
+                                    mRequest.setText("Looking for Driver Location....");
+                                }
+                            }
+                        }
+                        @Override
+                        public void onCancelled(DatabaseError databaseError) {
+                        }
+                    });
                 }
             }
-
             @Override
             public void onKeyExited(String key) {
 
@@ -152,6 +252,8 @@ public class CustomerMapActivity extends FragmentActivity implements OnMapReadyC
     }
 
     private Marker mDriverMarker;
+    private DatabaseReference driverLocationRef;
+    private ValueEventListener driverLocationRefListener;
     private void getDriverLocation(){
         DatabaseReference driverLocationRef = FirebaseDatabase.getInstance().getReference().child("driversWorking").child(driverFoundID).child("l");
         driverLocationRef.addValueEventListener(new ValueEventListener() {
@@ -198,6 +300,101 @@ public class CustomerMapActivity extends FragmentActivity implements OnMapReadyC
         });
 
     }
+    
+    private void getDriverInfo(){
+        mDriverInfo.setVisibility(View.VISIBLE);
+        DatabaseReference mCustomerDatabase = FirebaseDatabase.getInstance().getReference().child("Users").child("Drivers").child(driverFoundID);
+        mCustomerDatabase.addListenerForSingleValueEvent(new ValueEventListener() {
+            @Override
+            public void onDataChange(DataSnapshot dataSnapshot) {
+                if(dataSnapshot.exists() && dataSnapshot.getChildrenCount()>0){
+                    if(dataSnapshot.child("name")!=null){
+                        mDriverName.setText(dataSnapshot.child("name").getValue().toString());
+                    }
+                    if(dataSnapshot.child("phone")!=null){
+                        mDriverPhone.setText(dataSnapshot.child("phone").getValue().toString());
+                    }
+                    if(dataSnapshot.child("car")!=null){
+                        mDriverCar.setText(dataSnapshot.child("car").getValue().toString());
+                    }
+                    if(dataSnapshot.child("profileImageUrl")!=null){
+                        Glide.with(getApplication()).load(dataSnapshot.child("profileImageUrl").getValue().toString()).into(mDriverProfileImage);
+                    }
+
+                    int ratingSum = 0;
+                    float ratingsTotal = 0;
+                    float ratingsAvg = 0;
+                    for (DataSnapshot child : dataSnapshot.child("rating").getChildren()){
+                        ratingSum = ratingSum + Integer.valueOf(child.getValue().toString());
+                        ratingsTotal++;
+                    }
+                    if(ratingsTotal!= 0){
+                        ratingsAvg = ratingSum/ratingsTotal;
+                        mRatingBar.setRating(ratingsAvg);
+                    }
+                }
+            }
+            @Override
+            public void onCancelled(DatabaseError databaseError) {
+            }
+        });
+    }
+
+    private DatabaseReference driveHasEndedRef;
+    private ValueEventListener driveHasEndedRefListener;
+    private void getHasRideEnded(){
+        driveHasEndedRef = FirebaseDatabase.getInstance().getReference().child("Users").child("Drivers").child(driverFoundID).child("customerRequest").child("customerRideId");
+        driveHasEndedRefListener = driveHasEndedRef.addValueEventListener(new ValueEventListener() {
+            @Override
+            public void onDataChange(DataSnapshot dataSnapshot) {
+                if(dataSnapshot.exists()){
+
+                }else{
+                    endRide();
+                }
+            }
+
+            @Override
+            public void onCancelled(DatabaseError databaseError) {
+            }
+        });
+    }
+
+    private void endRide(){
+        requestBol = false;
+        geoQuery.removeAllListeners();
+        driverLocationRef.removeEventListener(driverLocationRefListener);
+        driveHasEndedRef.removeEventListener(driveHasEndedRefListener);
+
+        if (driverFoundID != null){
+            DatabaseReference driverRef = FirebaseDatabase.getInstance().getReference().child("Users").child("Drivers").child(driverFoundID).child("customerRequest");
+            driverRef.removeValue();
+            driverFoundID = null;
+
+        }
+        driverFound = false;
+        radius = 1;
+        String userId = FirebaseAuth.getInstance().getCurrentUser().getUid();
+
+        DatabaseReference ref = FirebaseDatabase.getInstance().getReference("customerRequest");
+        GeoFire geoFire = new GeoFire(ref);
+        geoFire.removeLocation(userId);
+
+        if(pickupMarker != null){
+            pickupMarker.remove();
+        }
+        if (mDriverMarker != null){
+            mDriverMarker.remove();
+        }
+        mRequest.setText("call Uber");
+
+        mDriverInfo.setVisibility(View.GONE);
+        mDriverName.setText("");
+        mDriverPhone.setText("");
+        mDriverCar.setText("Destination: --");
+        mDriverProfileImage.setImageResource(R.mipmap.ic_default_user);
+    }
+
 
 
     @Override
